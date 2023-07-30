@@ -704,7 +704,7 @@ static struct xdma_transfer *engine_start(struct xdma_engine *engine)
 	}
 	/* inspect first transfer queued on the engine */
 	transfer = list_entry(engine->transfer_list.next, struct xdma_transfer,
-			      entry);
+			      entry);		/* 获取结构体中的成员指针 */
 	if (!transfer) {
 		pr_debug("%s queued transfer must not be empty\n",
 			 engine->name);
@@ -2260,6 +2260,7 @@ static void transfer_dump(struct xdma_transfer *transfer)
  */
 static int transfer_desc_init(struct xdma_transfer *transfer, int count)
 {
+	/**@todo 这里的地址没看到申请空间，直接就用了？，和PCIE有关系？ */
 	struct xdma_desc *desc_virt = transfer->desc_virt;
 	dma_addr_t desc_bus = transfer->desc_bus;
 	int i;
@@ -2484,8 +2485,8 @@ static int transfer_queue(struct xdma_engine *engine,
 	/* lock the engine state */
 	spin_lock_irqsave(&engine->lock, flags);
 
-	engine->prev_cpu = get_cpu();
-	put_cpu();
+	engine->prev_cpu = get_cpu();		/* get_cpu() ：禁止任务抢占 */
+	put_cpu();							/* put_cpu() ： 启用任务抢占 */
 
 	/* engine is being shutdown; do not accept new transfers */
 	if (engine->shutdown & ENGINE_SHUTDOWN_REQUEST) {
@@ -2498,7 +2499,7 @@ static int transfer_queue(struct xdma_engine *engine,
 	/* mark the transfer as submitted */
 	transfer->state = TRANSFER_STATE_SUBMITTED;
 	/* add transfer to the tail of the engine transfer queue */
-	list_add_tail(&transfer->entry, &engine->transfer_list);
+	list_add_tail(&transfer->entry, &engine->transfer_list);		/* 添加到传输链表尾部 */
 
 	/* engine is idle? */
 	if (!engine->running) {
@@ -2954,6 +2955,14 @@ static int transfer_build(struct xdma_engine *engine,
 }
 
 
+/**
+ * @brief 传输初始化
+ * 
+ * @param engine 
+ * @param req 
+ * @param xfer 
+ * @return int 
+ */
 static int transfer_init(struct xdma_engine *engine,
 			struct xdma_request_cb *req, struct xdma_transfer *xfer)
 {
@@ -2973,7 +2982,7 @@ static int transfer_init(struct xdma_engine *engine,
 #if HAS_SWAKE_UP
 	init_swait_queue_head(&xfer->wq);
 #else
-	init_waitqueue_head(&xfer->wq);
+	init_waitqueue_head(&xfer->wq);			/* 初始化等待队列 */
 #endif
 
 	/* remember direction of transfer */
@@ -3089,6 +3098,14 @@ static struct xdma_request_cb *xdma_request_alloc(unsigned int sdesc_nr)
 	return req;
 }
 
+
+/**
+ * @brief 根据散列表设置用于请求传输的结构体
+ * 
+ * @param sgt 
+ * @param ep_addr 
+ * @return struct xdma_request_cb* 
+ */
 static struct xdma_request_cb *xdma_init_request(struct sg_table *sgt,
 						 u64 ep_addr)
 {
@@ -3101,23 +3118,25 @@ static struct xdma_request_cb *xdma_init_request(struct sg_table *sgt,
 	for (i = 0; i < max; i++, sg = sg_next(sg)) {
 		unsigned int len = sg_dma_len(sg);
 
+		/* unlikely修饰argc > 0分支，表示该分支不太可能被满足, 分支预测，体系结构相关的知识 */
 		if (unlikely(len > desc_blen_max))
 			extra += (len + desc_blen_max - 1) / desc_blen_max;
 	}
 
 	dbg_tfr("ep 0x%llx, desc %u+%u.\n", ep_addr, max, extra);
 
-	max += extra;
-	req = xdma_request_alloc(max);
+	max += extra;						/* 计算需要的传输计数 */
+	req = xdma_request_alloc(max);		/* 申请空间 */
 	if (!req)
 		return NULL;
 
 	req->sgt = sgt;
-	req->ep_addr = ep_addr;
-
+	req->ep_addr = ep_addr;		/* ep_addr是用户传过来 */
+	
+	/* 初始化传输描述符的地址等等，这个xdma_request_cb结构体是请求传输的结构体，最后也是return回去的 */
 	for (i = 0, sg = sgt->sgl; i < sgt->nents; i++, sg = sg_next(sg)) {
-		unsigned int tlen = sg_dma_len(sg);
-		dma_addr_t addr = sg_dma_address(sg);
+		unsigned int tlen = sg_dma_len(sg);			/* sg_dma_len，获取某一个scatterlist的长度 */
+		dma_addr_t addr = sg_dma_address(sg);		/* sg_dma_address，获取某一个scatterlist的物理地址 */
 
 		req->total_len += tlen;
 		while (tlen) {
@@ -3445,6 +3464,18 @@ unmap_sgl:
 	return done ? done : rv;
 }
 
+/**
+ * @brief 
+ * 
+ * @param dev_hndl 
+ * @param channel 
+ * @param write 
+ * @param ep_addr 
+ * @param sgt 
+ * @param dma_mapped 
+ * @param timeout_ms 
+ * @return ssize_t 
+ */
 ssize_t xdma_xfer_submit(void *dev_hndl, int channel, bool write, u64 ep_addr,
 			 struct sg_table *sgt, bool dma_mapped, int timeout_ms)
 {
@@ -3504,6 +3535,7 @@ ssize_t xdma_xfer_submit(void *dev_hndl, int channel, bool write, u64 ep_addr,
 	}
 
 	if (!dma_mapped) {
+		/* pci_map_sg完成分散/集中映射，其返回值是要传送的 DMA 缓冲区数，实际调用dma_map_sg，看源码是作为scatterlist数组处理，设置物理地址，没有用sg_table */
 		nents = pci_map_sg(xdev->pdev, sg, sgt->orig_nents, dir);
 		if (!nents) {
 			pr_info("map sgl failed, sgt 0x%p.\n", sgt);
@@ -3518,6 +3550,7 @@ ssize_t xdma_xfer_submit(void *dev_hndl, int channel, bool write, u64 ep_addr,
 		}
 	}
 
+	/* req是用于请求dma传输的结构体，下面主要看这个 */
 	req = xdma_init_request(sgt, ep_addr);
 	if (!req) {
 		rv = -ENOMEM;
@@ -3559,7 +3592,7 @@ ssize_t xdma_xfer_submit(void *dev_hndl, int channel, bool write, u64 ep_addr,
 #ifdef __LIBXDMA_DEBUG__
 		transfer_dump(xfer);
 #endif
-
+		/* 添加传输任务 */
 		rv = transfer_queue(engine, xfer);
 		if (rv < 0) {
 			mutex_unlock(&engine->desc_lock);
@@ -3568,11 +3601,11 @@ ssize_t xdma_xfer_submit(void *dev_hndl, int channel, bool write, u64 ep_addr,
 		}
 
 		if (engine->cmplthp)
-			xdma_kthread_wakeup(engine->cmplthp);
+			xdma_kthread_wakeup(engine->cmplthp);		/* 唤醒指定的注册在等待队列上的进程 */
 
-		if (timeout_ms > 0)
-			xlx_wait_event_interruptible_timeout(xfer->wq,
-				(xfer->state != TRANSFER_STATE_SUBMITTED),
+		if (timeout_ms > 0)						
+			xlx_wait_event_interruptible_timeout(xfer->wq,		/* ~睡眠~,直到condition为真，或timeout超时，等待任务提交 */
+				(xfer->state != TRANSFER_STATE_SUBMITTED),	
 				msecs_to_jiffies(timeout_ms));
 		else
 			xlx_wait_event_interruptible(xfer->wq,

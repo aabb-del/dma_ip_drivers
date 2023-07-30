@@ -109,6 +109,7 @@ static int xthread_main(void *data)
 		lock_thread(thp);
 		if (!xthread_work_pending(thp)) {
 			unlock_thread(thp);
+			/* 不是简单的reschedule， */
 			xthread_reschedule(thp);
 			lock_thread(thp);
 		}

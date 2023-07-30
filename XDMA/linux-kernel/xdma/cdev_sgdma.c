@@ -269,9 +269,17 @@ static void char_sgdma_unmap_user_buf(struct xdma_io_cb *cb, bool write)
 	cb->pages = NULL;
 }
 
+/**
+ * @brief 把用户空间的缓冲区映射到物理内存的散列表 scatterlist
+ * 	主要目的是用于DMA传输
+ *  
+ * @param cb 
+ * @param write 
+ * @return int 
+ */
 static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write)
 {
-	struct sg_table *sgt = &cb->sgt;
+	struct sg_table *sgt = &cb->sgt;	/* struct sg_table，帮忙保存scatterlist的数组指针和长度 */
 	unsigned long len = cb->len;
 	void __user *buf = cb->buf;
 	struct scatterlist *sg;
@@ -284,7 +292,8 @@ static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write)
 	if (pages_nr == 0)
 		return -EINVAL;
 
-	if (sg_alloc_table(sgt, pages_nr, GFP_KERNEL)) {
+	/* sg_alloc_table()用来分配non-chained SGL（当申请的数目nents超过限制时，也会生成chained SGL），orig_nents是内存块数组的size，nents是有效的内存块个数 */
+	if (sg_alloc_table(sgt, pages_nr, GFP_KERNEL)) {		
 		pr_err("sgl OOM.\n");
 		return -ENOMEM;
 	}
@@ -295,7 +304,7 @@ static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write)
 		rv = -ENOMEM;
 		goto err_out;
 	}
-
+	/* get_user_pages_fast，将用户态进程使用的内存在内核态分配一块虚拟地址进行页表映射，增加page的计数确保页不会被换出 */
 	rv = get_user_pages_fast((unsigned long)buf, pages_nr, 1/* write */,
 				cb->pages);
 	/* No pages were pinned */
@@ -324,13 +333,13 @@ static int char_sgdma_map_user_buf_to_sgl(struct xdma_io_cb *cb, bool write)
 	}
 
 	sg = sgt->sgl;
-	for (i = 0; i < pages_nr; i++, sg = sg_next(sg)) {
-		unsigned int offset = offset_in_page(buf);
+	for (i = 0; i < pages_nr; i++, sg = sg_next(sg)) {		/* sg_next，获取下一个scatterlist */	
+		unsigned int offset = offset_in_page(buf);			/* offset_in_page，在一个页中的偏移 */
 		unsigned int nbytes =
 			min_t(unsigned int, PAGE_SIZE - offset, len);
 
-		flush_dcache_page(cb->pages[i]);
-		sg_set_page(sg, cb->pages[i], nbytes, offset);
+		flush_dcache_page(cb->pages[i]);					/* dma搬移的时候是物理空间，要确保数据是最新的 */
+		sg_set_page(sg, cb->pages[i], nbytes, offset);		/* 将page中指定offset、指定长度的内存赋给指定的scatterlist（设置page_link、offset、len字段） */
 
 		buf += nbytes;
 		len -= nbytes;
@@ -391,6 +400,7 @@ static ssize_t char_sgdma_read_write(struct file *file, const char __user *buf,
 	if (rv < 0)
 		return rv;
 
+	/* 用前面获取的散列表进行数据传输 */
 	res = xdma_xfer_submit(xdev, engine->channel, write, *pos, &cb.sgt,
 				0, write ? h2c_timeout * 1000 :
 					   c2h_timeout * 1000);
