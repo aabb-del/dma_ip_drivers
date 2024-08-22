@@ -1,4 +1,4 @@
-RELEASE: 2023.1.3
+RELEASE: 2023.2.1
 =================
 
 This release is validated
@@ -6,6 +6,7 @@ This release is validated
 	- On VCU1525 for QDMA4.0 2020.2 example design
 	- On VCU1525 for QDMA3.1 2019.2 example design
 	- On XCVP1202 for CPM5 2022.1 example design
+	- On XCVC1902 for CPM4 2022.1 example design
 
 SUPPORTED FEATURES:
 ===================
@@ -144,8 +145,21 @@ CPM5
 ----------------
 - dma-ctl application is updated to append q params during queue start.
 
+2023.2.0 Updates
+----------------
+- Added driver support for CPM4 design.
+
+2023.2.1 Updates
+----------------
+- Added driver support to enable 10 bit tag for CPM5 design.
+
 KNOWN ISSUES:
 =============
+- CPM4 Only
+	- Due to HW PDI limitaion,
+		- VF is supported in poll mode only.
+		- VF functionality on VM is not verfied.
+
 - Observed MMAP failure for applications when device is binded QDMA Linux driver on Fedora37. Fix will be availbale in upcoming release.
 
 - CPM5 Only
@@ -166,8 +180,11 @@ DRIVER LIMITATIONS:
 	- For optimal QDMA streaming performance, packet buffers of the descriptor ring should be aligned to at least 256 bytes.
 	- FLR is not supported in the Driver for CentOS because linux kernels provided in CentOS versions does not support the driver call back registration for FLR functionality
 
-
-
+- XRT Only
+	- QDMA: Bypass user BAR check for XRT application
+		- The existing driver code assmues the presence of the user BAR as indicated in the functional example design. If this user BAR is not detected during the driver probing process,
+                  it results in a failure. However, this check is specific to example design and some customer designs might not contain user BAR. So bypassing the user BAR check to prevent
+                  driver returning error and proceed further.
 
 
 
